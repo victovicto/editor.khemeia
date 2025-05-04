@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="description" content="Ketcher sem Indigo" />
+  <title>Ketcher (sem Indigo)</title>
+
+  <!-- Ajuste: caminhos relativos substituídos por absolutos -->
+  <link rel="stylesheet" href="static/css/main.aafe9c71.css" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      background-color: #ffffff;
+      user-select: none;
+    }
+
+    #root {
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* Remove botão "Convert" */
+    .ketcher-topbar__group button[title="Convert structure"] {
+      display: none !important;
+    }
+  </style>
+
+  <script>
+    window.ketcher = { server: { indigo: null } };
+  </script>
+  <script defer src="static/js/main.6127d62f.js"></script>
+
+  <script>
+    window.addEventListener('load', () => {
+      const waitForKetcher = setInterval(() => {
+        const ketcherReady =
+          window.ketcher &&
+          typeof window.ketcher.getMolfile === 'function' &&
+          typeof window.ketcher.setMolecule === 'function' &&
+          window.ketcher.editor;
+
+        if (ketcherReady) {
+          clearInterval(waitForKetcher);
+
+          // Remove botão Convert caso ainda esteja presente
+          const removeConvertButton = () => {
+            const convertBtn = document.querySelector('button[title="Convert structure"]');
+            if (convertBtn) convertBtn.remove();
+          };
+          removeConvertButton();
+
+          window.getMolfile = async () => {
+            try {
+              const molfile = await window.ketcher.getMolfile();
+              window.parent.postMessage(JSON.stringify({
+                type: 'molfile',
+                data: molfile
+              }), '*');
+            } catch (error) {
+              console.error("Erro ao obter Molfile:", error);
+            }
+          };
+
+          window.getMolfileString = async () => {
+            try {
+              return await window.ketcher.getMolfile();
+            } catch (error) {
+              console.error("Erro ao obter Molfile:", error);
+              return '';
+            }
+          };
+
+          window.setMolecule = async (molfile) => {
+            try {
+              await window.ketcher.setMolecule(molfile);
+            } catch (e) {
+              console.error("Erro ao definir molécula:", e);
+            }
+          };
+
+          window.addEventListener("message", async (event) => {
+            try {
+              const message = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+              if (message.type === 'setMolfile' && message.data) {
+                await window.setMolecule(message.data);
+              }
+            } catch (e) {
+              console.error("Erro ao interpretar mensagem:", e);
+            }
+          });
+        }
+      }, 100);
+    });
+  </script>
+</head>
+<body>
+  <noscript>Habilite o JavaScript para usar o Ketcher.</noscript>
+  <div id="root"></div>
+</body>
+</html>
