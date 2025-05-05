@@ -1,10 +1,13 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#000000" />
   <meta name="description" content="Editor Ketcher" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>Ketcher com Quiz</title>
 
   <link rel="stylesheet" href="static/css/main.aafe9c71.css" />
@@ -79,21 +82,60 @@
       font-size: 14px;
       cursor: pointer;
     }
+
+    #loading-indicator {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 10000;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .spinner {
+      border: 6px solid #f3f3f3;
+      border-top: 6px solid #6A1B9A;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .error-message {
+      color: #F44336;
+      margin: 10px 0;
+      padding: 10px;
+      background-color: #FFEBEE;
+      border-radius: 6px;
+      border-left: 4px solid #F44336;
+    }
   </style>
 
   <script>
-    window.ketcher = { server: { indigo: null } };
+    // Remover a configuração do Indigo que não está sendo utilizada
+    window.ketcher = { server: {} };
   </script>
   <script defer src="static/js/main.6127d62f.js"></script>
 
   <script>
     window.addEventListener('load', () => {
       const waitForKetcher = setInterval(() => {
-        if (window.ketcher?.getMolfile && window.ketcher?.setMolecule) {
+        if (window.ketcher?.getMolfile && window.ketcher?.getSmiles && window.ketcher?.setMolecule) {
           clearInterval(waitForKetcher);
+          console.log('Ketcher inicializado com sucesso');
 
           const quizPanel = document.getElementById('quiz-panel');
           const quizContent = document.getElementById('quiz-content');
+          const loadingIndicator = document.getElementById('loading-indicator');
 
           let currentQuestionIndex = 0;
           let quizData = [];
@@ -107,17 +149,32 @@
             title.textContent = `Pergunta ${currentQuestionIndex + 1}: ${pergunta.enunciado}`;
             quizContent.appendChild(title);
 
-            pergunta.alternativas.forEach((alt, i) => {
+            // Converter o objeto de alternativas em array para renderizar
+            const alternativasArray = [];
+            for (const letra in pergunta.alternativas) {
+              alternativasArray.push({
+                letra: letra,
+                texto: pergunta.alternativas[letra]
+              });
+            }
+
+            alternativasArray.forEach((alt, i) => {
               const btn = document.createElement('button');
               btn.className = 'quiz-button';
-              btn.textContent = `${String.fromCharCode(65 + i)}) ${alt}`;
+              btn.textContent = `${alt.letra}) ${alt.texto}`;
               btn.addEventListener('click', () => {
-                const correta = pergunta.resposta.toUpperCase().charCodeAt(0) - 65;
-                if (i === correta) {
+                const correta = pergunta.correta;
+                if (alt.letra === correta) {
                   btn.classList.add('correct');
                 } else {
                   btn.classList.add('incorrect');
-                  quizContent.querySelectorAll('.quiz-button')[correta].classList.add('correct');
+                  // Encontra o botão com a resposta correta e destaca
+                  const botoesAlternativas = quizContent.querySelectorAll('.quiz-button');
+                  botoesAlternativas.forEach(botao => {
+                    if (botao.textContent.startsWith(correta + ')')) {
+                      botao.classList.add('correct');
+                    }
+                  });
                 }
                 setTimeout(() => {
                   currentQuestionIndex++;
@@ -132,39 +189,142 @@
             });
           };
 
-          const getMolfileAndSend = async () => {
-            try {
-              const molfile = await window.ketcher.getMolfile();
-              console.log(molfile); // Verifique o Molfile no console
-              if (!molfile) {
-                alert('Por favor, desenhe uma molécula.');
-                return;
-              }
+          const toggleLoadingIndicator = (show) => {
+            loadingIndicator.style.display = show ? 'flex' : 'none';
+          };
 
-              const res = await fetch('https://khemeia.onrender.com/ai/analisar-molecula', {
+          const showError = (message) => {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.textContent = message;
+            quizContent.innerHTML = '';
+            quizContent.appendChild(errorDiv);
+            quizPanel.style.display = 'block';
+          };
+
+          const getStructureAndSend = async () => {
+            toggleLoadingIndicator(true);
+            try {
+              // Abordagem simplificada para obter a estrutura molecular
+              let molfile = '';
+              let representationType = 'molfile';
+              const ketcher = window.ketcher;
+              
+              try {
+                // Primeira tentativa: usando getSmiles
+                const smiles = await ketcher.getSmiles();
+                if (smiles && typeof smiles === 'string' && smiles.trim() !== '') {
+                  console.log('SMILES obtido:', smiles);
+                  molfile = smiles;
+                  representationType = 'SMILES:';
+                } else {
+                  throw new Error('SMILES vazio ou inválido');
+                }
+              } catch (smilesError) {
+                console.warn('Erro ao obter SMILES, tentando obter Molfile diretamente:', smilesError);
+                
+                try {
+                  // Segunda tentativa: obter Molfile diretamente
+                  molfile = await ketcher.getMolfile();
+                  if (molfile && typeof molfile === 'string' && molfile.trim() !== '') {
+                    console.log('Molfile obtido com sucesso');
+                    representationType = 'molfile';
+                  } else {
+                    throw new Error('Molfile vazio ou inválido');
+                  }
+                } catch (molfileError) {
+                  console.error('Erro ao obter Molfile:', molfileError);
+                  
+                  // Última tentativa: tentar qualquer representação disponível
+                  if (typeof ketcher.getKet === 'function') {
+                    try {
+                      const ketData = await ketcher.getKet();
+                      if (ketData) {
+                        console.log('Usando formato KET como alternativa');
+                        molfile = ketData;
+                        representationType = 'KET:';
+                      } else {
+                        throw new Error('KET vazio ou inválido');
+                      }
+                    } catch (ketError) {
+                      throw new Error('Não foi possível obter nenhuma representação válida da estrutura');
+                    }
+                  } else {
+                    throw new Error('Não foi possível extrair a estrutura química');
+                  }
+                }
+              }
+              
+              // Validação final
+              if (!molfile || (typeof molfile === 'string' && molfile.trim() === '')) {
+                throw new Error('Por favor, desenhe uma molécula antes de gerar perguntas.');
+              }
+              
+              // Preparação dos dados para envio
+              let structureData = molfile;
+              
+              // Adicionar o prefixo apropriado se não for um Molfile
+              if (representationType !== 'molfile') {
+                structureData = `${representationType} ${molfile}`;
+              }
+              
+              console.log('Enviando dados da estrutura com comprimento:', structureData.length);
+              
+              // Usar o endpoint correto em um servidor de desenvolvimento ou produção
+              const apiUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+                ? 'http://localhost:3000/ai/analisar-molecula'
+                : 'https://khemeia.onrender.com/ai/analisar-molecula';
+              
+              // Enviar usando fetch com tratamento de erro melhorado
+              const res = await fetch(apiUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ molfile }) // Enviando apenas o Molfile
+                headers: { 
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/json'
+                  // Removendo o cabeçalho Cache-Control que estava causando erro CORS
+                },
+                body: JSON.stringify({ molfile: structureData })
               });
 
-              const result = await res.json();
+              if (!res.ok) {
+                const errorText = await res.text();
+                console.error('Resposta de erro do servidor:', errorText);
+                throw new Error(`Erro ${res.status}: ${errorText || 'Erro ao conectar ao servidor'}`);
+              }
+
+              // Tratamento seguro do JSON
+              let result;
+              try {
+                result = await res.json();
+              } catch (jsonError) {
+                console.error('Erro ao analisar JSON:', jsonError);
+                throw new Error('Formato de resposta inválido do servidor');
+              }
+
+              if (result.erro) {
+                throw new Error(result.erro);
+              }
 
               quizData = result.perguntas || [];
               currentQuestionIndex = 0;
+              
               if (quizData.length > 0) {
                 quizPanel.style.display = 'block';
                 renderQuestion();
               } else {
-                quizContent.innerHTML = '<p>Nenhuma pergunta foi gerada.</p>';
+                quizContent.innerHTML = '<p>Nenhuma pergunta foi gerada para esta molécula. Tente uma estrutura mais complexa.</p>';
                 quizPanel.style.display = 'block';
               }
             } catch (err) {
-              console.error('Erro ao obter perguntas do backend:', err);
-              alert('Erro ao conectar ao backend. Tente novamente.');
+              console.error('Erro completo:', err);
+              showError(err.message || 'Erro desconhecido ao conectar com o backend.');
+            } finally {
+              toggleLoadingIndicator(false);
             }
           };
 
-          document.getElementById('custom-save-button').addEventListener('click', getMolfileAndSend);
+          // Adiciona o evento de clique no botão
+          document.getElementById('custom-save-button').addEventListener('click', getStructureAndSend);
         }
       }, 100);
     });
@@ -182,6 +342,11 @@
     <h3 style="margin-top: 0; color: #6A1B9A;">Quiz da Molécula</h3>
     <div id="quiz-content"></div>
     <button onclick="document.getElementById('quiz-panel').style.display='none'" style="margin-top: 10px; background-color: #ccc; border: none; border-radius: 6px; padding: 8px; width: 100%;">Fechar</button>
+  </div>
+
+  <!-- Indicador de Carregamento -->
+  <div id="loading-indicator">
+    <div class="spinner"></div>
   </div>
 </body>
 </html>
